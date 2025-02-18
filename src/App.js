@@ -1,6 +1,6 @@
 import {BrowserRouter as Router, Navigate, Route, Routes, useNavigate,} from "react-router-dom";
 import {MaterialReactTable} from "material-react-table";
-import React, {useEffect, useState} from "react";
+import React, {useEffect, useState, useCallback} from "react";
 import {Alert, createTheme, CssBaseline, Snackbar, ThemeProvider} from "@mui/material"; // Import material components
 import {DateRange} from "react-date-range";
 import "react-date-range/dist/styles.css"; // Default Style
@@ -96,11 +96,14 @@ const Employees = () => {
     const [data, setData] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(false);
+    const [columns, setColumns] = useState([]);
+    const [columnVisibility, setColumnVisibility] = useState({});
     const [snackbar, setSnackbar] = useState({
         open: false,
         message: '',
         severity: 'info',
     });
+    const navigate = useNavigate();
     const [isDarkMode, setIsDarkMode] = useState(false);
     const [dateRange, setDateRange] = useState({
         startDate: new Date(),
@@ -149,23 +152,61 @@ const Employees = () => {
             });
         }
     };
-
-    const navigate = useNavigate();
-
-    const lightTheme = createTheme({
-        palette: {
-            mode: "light",
-        },
-    });
-
     const darkTheme = createTheme({
         palette: {
             mode: "dark",
         },
     });
+    const lightTheme = createTheme({
+        palette: {
+            mode: "light",
+        },
+    });
+    const fetchTheme = async () => {
+        const accessToken = localStorage.getItem("accessToken");
+        try {
+            const response = await fetch("/api/theme/", {
+                method: "GET",
+                headers: {Authorization: `Bearer ${accessToken}`},
+            });
 
-    const toggleTheme = () => {
-        setIsDarkMode((prevTheme) => !prevTheme);
+            if (!response.ok) throw new Error("Failed to fetch theme");
+
+            const {theme} = await response.json();
+            setIsDarkMode(theme === 2); // 2 — темная, 1 — светлая
+        } catch (error) {
+            console.error("Error loading theme:", error);
+        }
+    };
+    const saveTheme = async (theme) => {
+        const accessToken = localStorage.getItem("accessToken");
+        try {
+            const response = await fetch("/api/theme/", {
+                method: "POST",
+                headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({theme}),
+            });
+
+            if (!response.ok) throw new Error("Failed to save theme");
+            console.log("Theme updated successfully");
+        } catch (error) {
+            console.error("Error saving theme:", error);
+        }
+    };
+
+    const toggleTheme = async () => {
+        const newTheme = isDarkMode ? 1 : 2; // 1 — светлая, 2 — темная
+        setIsDarkMode(!isDarkMode);
+
+        try {
+            await saveTheme(newTheme);
+            console.log("Theme saved successfully");
+        } catch (error) {
+            console.error("Failed to save theme:", error);
+        }
     };
 
     const handleLogout = () => {
@@ -174,7 +215,7 @@ const Employees = () => {
         navigate("/login");
     };
 
-    const fetchEmployees = async (start, end) => {
+    const fetchEmployees = useCallback(async (start, end) => {
         const period_start = start || dateRange.startDate.toISOString().slice(0, 10);
         const period_end = end || dateRange.endDate.toISOString().slice(0, 10);
         try {
@@ -198,8 +239,31 @@ const Employees = () => {
             if (!response.ok) {
                 if (response.status === 401) {
                     const newAccessToken = await refreshAccessToken();
+
+                    async function refreshAccessToken() {
+                        const refreshToken = localStorage.getItem("refreshToken");
+                        try {
+                            const response = await fetch("/api/refresh-token/", {
+                                method: "POST",
+                                headers: {
+                                    "Content-Type": "application/json",
+                                },
+                                body: JSON.stringify({refresh_token: refreshToken}),
+                            });
+
+                            if (!response.ok) throw new Error("Failed to refresh access token");
+
+                            const {access_token} = await response.json();
+                            localStorage.setItem("accessToken", access_token);
+                            return access_token;
+                        } catch (error) {
+                            console.error("Error refreshing access token:", error);
+                            return null;
+                        }
+                    }
+
                     if (newAccessToken) {
-                        return fetchEmployees();
+                        return fetchEmployees(start, end); // Аргументы повторного вызова
                     } else {
                         throw new Error("Could not refresh access token");
                     }
@@ -218,59 +282,166 @@ const Employees = () => {
                 message: "Failed to fetch employees. Please try again later.",
                 severity: "error",
             });
+            if (error.message === "No access token found") navigate("/login"); // Добавлено перенаправление на логин
         } finally {
             setLoading(false);
         }
-    };
-
-    const refreshAccessToken = async () => {
+    }, [dateRange.startDate, dateRange.endDate]);
+    const saveColumns = async (updatedColumns) => {
         try {
-            const refreshToken = localStorage.getItem("refreshToken");
-            if (!refreshToken) {
-                throw new Error("No refresh token found");
-            }
+            const accessToken = localStorage.getItem("accessToken");
+            const payload = updatedColumns.map((col) => ({
+                id: col.accessorKey, // Добавляем id
+                accessorKey: col.accessorKey,
+                header: col.header,
+                isVisible: col.isVisible,
+                order: col.order,
+            }));
 
-            const response = await fetch("/api/token/refresh/", {
+            console.log("Payload to save:", payload); // Логируем данные перед отправкой
+
+            const response = await fetch(`/api/options/`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
+                    Authorization: `Bearer ${accessToken}`,
                 },
-                body: JSON.stringify({refresh: refreshToken}),
+                body: JSON.stringify({key: "workspace", value: payload}),
             });
 
             if (!response.ok) {
-                throw new Error("Failed to refresh token");
+                throw new Error(`Failed to save columns: ${response.statusText}`);
+            }
+            console.log("Columns saved successfully");
+        } catch (error) {
+            console.error("Error saving columns:", error);
+        }
+    };
+    useEffect(() => {
+        const loadTheme = async () => {
+            try {
+                await fetchTheme();
+            } catch (error) {
+                console.error("Failed to load theme:", error);
+            }
+        };
+
+        const loadColumns = async () => {
+            try {
+                const result = await fetchOption("workspace");
+                const columnData = result.value;
+
+                if (Array.isArray(columnData)) {
+                    const updatedColumns = columnData.map((col, index) => ({
+                        id: col.accessorKey, // Убедитесь, что id уникален
+                        accessorKey: col.accessorKey,
+                        header: col.header || col.accessorKey,
+                        order: col.order || index,
+                        isVisible: col.isVisible !== undefined ? col.isVisible : true,
+                    })).sort((a, b) => a.order - b.order);
+
+                    setColumns(updatedColumns);
+
+                    // Инициализация состояния видимости столбцов
+                    const visibilityState = {};
+                    updatedColumns.forEach(col => {
+                        visibilityState[col.accessorKey] = col.isVisible;
+                    });
+                    setColumnVisibility(visibilityState);
+                } else {
+                    console.error("Invalid column data format:", result);
+                }
+            } catch (error) {
+                console.error("Error fetching columns:", error);
+                setColumns([]);
+            }
+        };
+
+        const loadEmployees = async () => {
+            await fetchEmployees();
+        };
+
+        loadTheme();
+        loadColumns(); // Вызов исправленного метода
+        loadEmployees();
+    }, [fetchEmployees, dateRange.startDate, dateRange.endDate]);
+
+    const fetchOption = async (key) => {
+        const accessToken = localStorage.getItem("accessToken");
+        try {
+            const response = await fetch(`/api/options/?key=${key}`, {
+                method: "GET",
+                headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                },
+            });
+
+            if (!response.ok) {
+                throw new Error("Failed to fetch option");
             }
 
-            const {access} = await response.json();
-            localStorage.setItem("accessToken", access);
-            return access;
-        } catch (err) {
-            console.error("Error refreshing access token:", err);
-            localStorage.removeItem("accessToken");
-            localStorage.removeItem("refreshToken");
-            setSnackbar({
-                open: true,
-                message: "Session expired. Please log in again.",
-                severity: "error",
-            });
-            navigate("/login");
-            return null;
+            const result = await response.json();
+            return result; // Убедитесь, что result.value является массивом объектов
+        } catch (error) {
+            console.error("Error fetching option:", error);
+            return {value: []}; // Возвращаем пустой массив при ошибке
         }
     };
 
-    useEffect(() => {
-        document.body.setAttribute("data-theme", isDarkMode ? "dark" : "light");
-        fetchEmployees();
-    }, [isDarkMode]);
+    const handleColumnVisibilityChange = (updater) => {
+        // Обновляем состояние видимости столбцов
+        setColumnVisibility((prev) => {
+            const newVisibility = typeof updater === "function" ? updater(prev) : updater;
 
-    const columns = data.length
-        ? Object.keys(data[0]).map((key) => ({
-            accessorKey: key,
-            header: key.replace(/_/g, " ").toUpperCase(),
-        }))
-        : [];
+            // Обновляем состояние `isVisible` в массиве `columns`
+            const updatedColumns = columns.map((col) => ({
+                ...col,
+                isVisible: newVisibility[col.accessorKey] !== false, // Если столбец скрыт, isVisible будет false
+            }));
 
+            // Сохраняем изменения в БД
+            saveColumns(updatedColumns);
+
+            return newVisibility;
+        });
+    };
+    const handleColumnOrderChange = (updater) => {
+        setColumns((prevColumns) => {
+            // Получаем массив новых колонок
+            const newColumns = typeof updater === 'function' ? updater(prevColumns) : updater;
+
+            // Шаг 1: Проверить и преобразовать newColumns
+            // Если newColumns содержит строки, необходимо сопоставить их с существующими колонками
+            const normalizedColumns = newColumns.map((col) => {
+                // Если колонка – это объект, оставляем её как есть
+                if (typeof col === 'object') {
+                    return col;
+                }
+
+                // Если колонка – это строка, пытаемся найти её в prevColumns
+                const matchedCol = prevColumns.find((prevCol) => prevCol.id === col || prevCol.accessorKey === col);
+
+                if (matchedCol) {
+                    return matchedCol;
+                }
+
+                // Если колонка не найдена, логируем ошибку и пропускаем её
+                console.error('Invalid column detected:', col);
+                return null;
+            }).filter(Boolean); // Убираем "null" из массива
+
+            // Шаг 2: Присваиваем новый порядок всем колонкам
+            const updatedColumns = normalizedColumns.map((col, index) => ({
+                ...col,
+                order: index, // Устанавливаем порядок как числовой индекс
+            }));
+
+            // Шаг 3: Сохраняем изменения на сервере
+            saveColumns(updatedColumns);
+
+            return updatedColumns;
+        });
+    };
     return (
         <ThemeProvider theme={isDarkMode ? darkTheme : lightTheme}>
             <CssBaseline/>
@@ -364,7 +535,10 @@ const Employees = () => {
                     enableColumnOrdering={true}
                     enableColumnResizing={true}
                     enableHiding={true}
-                    enableSorting={true}
+                    initialState={{columnVisibility}}
+                    onColumnVisibilityChange={handleColumnVisibilityChange}
+                    onColumnOrderChange={handleColumnOrderChange}
+                    state={{columnVisibility}}
                 />
             )}
             <Snackbar
@@ -389,6 +563,8 @@ const App = () => {
 
     const checkLoginStatus = async () => {
         const accessToken = localStorage.getItem("accessToken");
+        const period_start = new Date().toISOString().split("T")[0]; // example value
+        const period_end = period_start;
 
         // Token not found
         if (!accessToken) {
@@ -399,8 +575,15 @@ const App = () => {
 
         try {
             const response = await fetch("/api/employees/", {
-                method: "GET",
-                headers: {Authorization: `Bearer ${accessToken}`},
+                method: "POST",
+                headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    period_start,
+                    period_end,
+                }),
             });
 
             if (response.status === 401) {
@@ -418,7 +601,15 @@ const App = () => {
     };
 
     useEffect(() => {
-        checkLoginStatus(); // Dynamically check login status on mount
+        const validateStatus = async () => {
+            try {
+                await checkLoginStatus();
+            } catch (error) {
+                console.error("Failed to check login status:", error);
+            }
+        };
+
+        validateStatus();// Dynamically check login status on mount
     }, []);
 
     // Avoid rendering routes until login status is known
@@ -439,7 +630,8 @@ const App = () => {
                 <Route path="*" element={<Navigate to="/" replace/>}/>
             </Routes>
         </Router>
-    );
+    )
+        ;
 };
 
 export default App;
