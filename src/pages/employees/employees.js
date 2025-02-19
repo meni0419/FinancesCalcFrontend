@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
-import { MaterialReactTable } from "material-react-table";
+import React, {useState, useEffect, useCallback} from "react";
+import {useNavigate} from "react-router-dom";
+import {MaterialReactTable} from "material-react-table";
 import {
     ThemeProvider,
     createTheme,
@@ -8,7 +8,7 @@ import {
     Snackbar,
     Alert,
 } from "@mui/material";
-import { DateRange } from "react-date-range";
+import {DateRange} from "react-date-range";
 import "react-date-range/dist/styles.css";
 import "react-date-range/dist/theme/default.css";
 
@@ -97,6 +97,14 @@ const Employees = () => {
             setIsDarkMode(theme === 2); // 2 — темная, 1 — светлая
         } catch (error) {
             console.error("Error loading theme:", error);
+        }
+    };
+
+    const loadTheme = async () => {
+        try {
+            await fetchTheme();
+        } catch (error) {
+            console.error("Failed to load theme:", error);
         }
     };
     const saveTheme = async (theme) => {
@@ -208,55 +216,9 @@ const Employees = () => {
             setLoading(false);
         }
     }, [dateRange.startDate, dateRange.endDate]);
-
-    useEffect(() => {
-        const loadTheme = async () => {
-            try {
-                await fetchTheme();
-            } catch (error) {
-                console.error("Failed to load theme:", error);
-            }
-        };
-
-        const loadColumns = async () => {
-            try {
-                const result = await fetchOption("workspace");
-                const columnData = result.value;
-
-                if (Array.isArray(columnData)) {
-                    const updatedColumns = columnData.map((col, index) => ({
-                        id: col.accessorKey, // Убедитесь, что id уникален
-                        accessorKey: col.accessorKey,
-                        header: col.header || col.accessorKey,
-                        order: col.order || index,
-                        isVisible: col.isVisible !== undefined ? col.isVisible : true,
-                    })).sort((a, b) => a.order - b.order);
-
-                    setColumns(updatedColumns);
-
-                    // Инициализация состояния видимости столбцов
-                    const visibilityState = {};
-                    updatedColumns.forEach(col => {
-                        visibilityState[col.accessorKey] = col.isVisible;
-                    });
-                    setColumnVisibility(visibilityState);
-                } else {
-                    console.error("Invalid column data format:", result);
-                }
-            } catch (error) {
-                console.error("Error fetching columns:", error);
-                setColumns([]);
-            }
-        };
-
-        const loadEmployees = async () => {
-            await fetchEmployees();
-        };
-
-        loadTheme();
-        loadColumns(); // Вызов исправленного метода
-        loadEmployees();
-    }, [fetchEmployees, dateRange.startDate, dateRange.endDate]);
+    const loadEmployees = async () => {
+        await fetchEmployees();
+    };
 
     const fetchOption = async (key) => {
         const accessToken = localStorage.getItem("accessToken");
@@ -283,27 +245,39 @@ const Employees = () => {
     const handleColumnVisibilityChange = (updater) => {
         setColumnVisibility((prev) => {
             const newVisibility = typeof updater === "function" ? updater(prev) : updater;
-
-            console.log("New visibility state:", newVisibility); // Логируем новое состояние видимости
+            // Обновляем состояние `isVisible` в массиве `columns`
 
             const updatedColumns = columns.map((col) => ({
                 ...col,
                 isVisible: newVisibility[col.accessorKey] !== false,
             }));
+            // Сортируем столбцы: сначала видимые, затем невидимые
 
-            saveColumns(updatedColumns);
+            const sortedColumns = updatedColumns.sort((a, b) => {
+                if (a.isVisible === b.isVisible) return a.order - b.order; // Если видимость одинаковая, сохраняем порядок
+                return a.isVisible ? -1 : 1; // Видимые столбцы идут первыми
+            });
+            // Обновляем порядок столбцов
+
+            const finalColumns = sortedColumns.map((col, index) => ({
+                ...col,
+                order: index,
+            }));
+            // Сохраняем изменения на сервере
+
+            saveColumns(finalColumns);
+            // Возвращаем новое состояние видимости
 
             return newVisibility;
         });
     };
+
     const handleColumnOrderChange = (updater) => {
         setColumns((prevColumns) => {
             const newColumns = typeof updater === 'function' ? updater(prevColumns) : updater;
-
             const normalizedColumns = newColumns
                 .map((col) => {
                     if (typeof col === 'string' && col.startsWith('mrt-')) {
-                        console.warn('Ignoring internal column:', col);
                         return null;
                     }
 
@@ -316,21 +290,69 @@ const Employees = () => {
                         return matchedCol;
                     }
 
-                    console.error('Invalid column detected:', col);
                     return null;
                 })
                 .filter(Boolean);
 
-            const updatedColumns = normalizedColumns.map((col, index) => ({
+            // Сортируем столбцы: сначала видимые, затем невидимые
+
+            const sortedColumns = normalizedColumns.sort((a, b) => {
+                if (a.isVisible === b.isVisible) return a.order - b.order; // Если видимость одинаковая, сохраняем порядок
+                return a.isVisible ? -1 : 1; // Видимые столбцы идут первыми
+            });
+            const updatedColumns = sortedColumns.map((col, index) => ({
                 ...col,
                 order: index,
             }));
 
             // Сохраняем изменения на сервере
-            saveColumns(updatedColumns);
 
+            saveColumns(updatedColumns);
             return updatedColumns;
+
         });
+    };
+    const loadColumns = async () => {
+        try {
+            const result = await fetchOption("workspace");
+            const columnData = result.value;
+
+            if (Array.isArray(columnData)) {
+                const updatedColumns = columnData.map((col, index) => ({
+                    id: col.accessorKey,
+                    accessorKey: col.accessorKey,
+                    header: col.header || col.accessorKey,
+                    order: col.order || index,
+                    isVisible: col.isVisible !== undefined ? col.isVisible : true,
+                }));
+
+                // Сортируем столбцы: сначала видимые, затем невидимые
+                const sortedColumns = updatedColumns.sort((a, b) => {
+                    if (a.isVisible === b.isVisible) return a.order - b.order; // Если видимость одинаковая, сохраняем порядок
+                    return a.isVisible ? -1 : 1; // Видимые столбцы идут первыми
+                });
+
+                // Обновляем порядок столбцов
+                const finalColumns = sortedColumns.map((col, index) => ({
+                    ...col,
+                    order: index,
+                }));
+
+                setColumns(finalColumns);
+
+                // Инициализация состояния видимости столбцов
+                const visibilityState = {};
+                finalColumns.forEach(col => {
+                    visibilityState[col.accessorKey] = col.isVisible;
+                });
+                setColumnVisibility(visibilityState);
+            } else {
+                console.error("Invalid column data format:", result);
+            }
+        } catch (error) {
+            console.error("Error fetching columns:", error);
+            setColumns([]);
+        }
     };
     const saveColumns = async (updatedColumns) => {
         try {
@@ -360,6 +382,12 @@ const Employees = () => {
             console.error("Error saving columns:", error);
         }
     };
+    useEffect(() => {
+        loadTheme();
+        loadColumns(); // Вызов исправленного метода
+        loadEmployees();
+    }, [fetchEmployees, dateRange.startDate, dateRange.endDate]);
+
     return (
         <ThemeProvider theme={isDarkMode ? darkTheme : lightTheme}>
             <CssBaseline/>
