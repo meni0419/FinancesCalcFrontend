@@ -326,8 +326,6 @@ const Employees = () => {
                 order: index,
             }));
 
-            console.log("Updated columns:", updatedColumns); // Логируем обновленные столбцы
-
             // Сохраняем изменения на сервере
             saveColumns(updatedColumns);
 
@@ -450,7 +448,7 @@ const Employees = () => {
                 <p>Something went wrong. Please try again later.</p>
             ) : (
                 <MaterialReactTable
-                    key={columns.length} // Добавьте key, чтобы заставить таблицу перерисовываться
+                    key={columns.map(col => col.accessorKey).join('-')}
                     columns={columns}
                     data={data}
                     enableColumnOrdering={true}
