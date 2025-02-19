@@ -245,29 +245,29 @@ const Employees = () => {
     const handleColumnVisibilityChange = (updater) => {
         setColumnVisibility((prev) => {
             const newVisibility = typeof updater === "function" ? updater(prev) : updater;
-            // Обновляем состояние `isVisible` в массиве `columns`
 
+            // Обновляем состояние `isVisible` в массиве `columns`
             const updatedColumns = columns.map((col) => ({
                 ...col,
                 isVisible: newVisibility[col.accessorKey] !== false,
             }));
-            // Сортируем столбцы: сначала видимые, затем невидимые
 
+            // Сортируем столбцы: сначала видимые, затем невидимые
             const sortedColumns = updatedColumns.sort((a, b) => {
                 if (a.isVisible === b.isVisible) return a.order - b.order; // Если видимость одинаковая, сохраняем порядок
                 return a.isVisible ? -1 : 1; // Видимые столбцы идут первыми
             });
-            // Обновляем порядок столбцов
 
+            // Обновляем порядок столбцов
             const finalColumns = sortedColumns.map((col, index) => ({
                 ...col,
                 order: index,
             }));
+
             // Сохраняем изменения на сервере
-
             saveColumns(finalColumns);
-            // Возвращаем новое состояние видимости
 
+            // Возвращаем новое состояние видимости
             return newVisibility;
         });
     };
@@ -275,6 +275,7 @@ const Employees = () => {
     const handleColumnOrderChange = (updater) => {
         setColumns((prevColumns) => {
             const newColumns = typeof updater === 'function' ? updater(prevColumns) : updater;
+
             const normalizedColumns = newColumns
                 .map((col) => {
                     if (typeof col === 'string' && col.startsWith('mrt-')) {
@@ -294,24 +295,19 @@ const Employees = () => {
                 })
                 .filter(Boolean);
 
-            // Сортируем столбцы: сначала видимые, затем невидимые
-
-            const sortedColumns = normalizedColumns.sort((a, b) => {
-                if (a.isVisible === b.isVisible) return a.order - b.order; // Если видимость одинаковая, сохраняем порядок
-                return a.isVisible ? -1 : 1; // Видимые столбцы идут первыми
-            });
-            const updatedColumns = sortedColumns.map((col, index) => ({
+            // Обновляем порядок столбцов без сортировки по видимости
+            const updatedColumns = normalizedColumns.map((col, index) => ({
                 ...col,
                 order: index,
             }));
 
             // Сохраняем изменения на сервере
-
             saveColumns(updatedColumns);
-            return updatedColumns;
 
+            return updatedColumns;
         });
     };
+
     const loadColumns = async () => {
         try {
             const result = await fetchOption("workspace");
