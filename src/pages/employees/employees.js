@@ -295,9 +295,10 @@ const Employees = () => {
                 })
                 .filter(Boolean);
 
-            // Обновляем порядок столбцов без сортировки по видимости
+            // Синхронизируем видимость столбцов с актуальным состоянием columnVisibility
             const updatedColumns = normalizedColumns.map((col, index) => ({
                 ...col,
+                isVisible: columnVisibility[col.accessorKey] !== false, // Используем актуальное состояние видимости
                 order: index,
             }));
 
