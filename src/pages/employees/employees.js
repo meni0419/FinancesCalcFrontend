@@ -311,8 +311,8 @@ const Employees = () => {
 
     const loadColumns = async () => {
         try {
-            const result = await fetchOption("workspace");
-            const columnData = result.value;
+            const fetchWorkspace = await fetchOption("workspace");
+            const columnData = fetchWorkspace.value;
 
             if (Array.isArray(columnData)) {
                 const updatedColumns = columnData.map((col, index) => ({
@@ -344,7 +344,7 @@ const Employees = () => {
                 });
                 setColumnVisibility(visibilityState);
             } else {
-                console.error("Invalid column data format:", result);
+                console.error("Invalid column data format:", fetchWorkspace);
             }
         } catch (error) {
             console.error("Error fetching columns:", error);
@@ -379,7 +379,44 @@ const Employees = () => {
             console.error("Error saving columns:", error);
         }
     };
+
+    const fetchToggleDensity = async () => {
+        const response = await fetchOption('toggleDensity');
+        return response.value || 'comfortable'; // Возвращаем значение или значение по умолчанию
+    };
+
+    const saveToggleDensity = async (density) => {
+        try {
+            const accessToken = localStorage.getItem("accessToken");
+            const response = await fetch("/api/options/", {
+                method: "POST",
+                headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({key: "toggleDensity", value: density}),
+            });
+
+            if (!response.ok) {
+                throw new Error("Failed to save toggle density");
+            }
+            console.log("Toggle density saved successfully");
+        } catch (error) {
+            console.error("Error saving toggle density:", error);
+        }
+    };
+    const [density, setDensity] = useState("comfortable");
+    const loadToggleDensity = async () => {
+        const densityValue = await fetchToggleDensity();
+        setDensity(densityValue);
+    };
+    const handleToggleDensity = async (newDensity) => {
+        await saveToggleDensity(newDensity);
+        setDensity(newDensity);
+    };
+
     useEffect(() => {
+        loadToggleDensity();
         loadTheme();
         loadColumns(); // Вызов исправленного метода
         loadEmployees();
@@ -479,10 +516,11 @@ const Employees = () => {
                     enableColumnOrdering={true}
                     enableColumnResizing={true}
                     enableHiding={true}
-                    initialState={{columnVisibility}}
+                    initialState={{columnVisibility, density}}
                     onColumnVisibilityChange={handleColumnVisibilityChange}
                     onColumnOrderChange={handleColumnOrderChange}
-                    state={{columnVisibility}}
+                    onDensityChange={handleToggleDensity}
+                    state={{columnVisibility, density}}
                 />
             )}
             <Snackbar
