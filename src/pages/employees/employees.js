@@ -1,16 +1,11 @@
-import React, {useState, useEffect, useCallback} from "react";
+import React, {useCallback, useEffect, useState} from "react";
 import {useNavigate} from "react-router-dom";
 import {MaterialReactTable} from "material-react-table";
-import {
-    ThemeProvider,
-    createTheme,
-    CssBaseline,
-    Snackbar,
-    Alert,
-} from "@mui/material";
+import {Alert, createTheme, CssBaseline, IconButton, Snackbar, ThemeProvider, Modal, Button} from "@mui/material";
 import {DateRange} from "react-date-range";
 import "react-date-range/dist/styles.css";
 import "react-date-range/dist/theme/default.css";
+import {Brightness4, Brightness7, Logout as LogoutIcon, SwapHoriz, SwapVert, CalendarMonth as CalendarMonthIcon} from "@mui/icons-material";
 
 
 const Employees = () => {
@@ -18,6 +13,11 @@ const Employees = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(false);
     const [columns, setColumns] = useState([]);
+    const [columnSizing, setColumnSizing] = useState({
+        //initials: 30,
+        photo: 75,
+    });
+
     const [columnVisibility, setColumnVisibility] = useState({});
     const [snackbar, setSnackbar] = useState({
         open: false,
@@ -25,13 +25,13 @@ const Employees = () => {
         severity: 'info',
     });
     const navigate = useNavigate();
-    const [isDarkMode, setIsDarkMode] = useState(false);
+    const [isDarkMode, setIsDarkMode] = useState(true);
+    const [isCalendarOpen, setIsCalendarOpen] = useState(false);
     const [dateRange, setDateRange] = useState({
         startDate: new Date(),
         endDate: new Date(),
         key: "selection",
     });
-    const [isCalendarOpen, setIsCalendarOpen] = useState(false);
 
     const toggleCalendar = () => setIsCalendarOpen(!isCalendarOpen);
 
@@ -129,6 +129,9 @@ const Employees = () => {
     const toggleTheme = async () => {
         const newTheme = isDarkMode ? 1 : 2; // 1 — светлая, 2 — темная
         setIsDarkMode(!isDarkMode);
+
+        // Обновляем атрибут data-theme на body
+        document.body.setAttribute('data-theme', isDarkMode ? 'light' : 'dark');
 
         try {
             await saveTheme(newTheme);
@@ -321,6 +324,24 @@ const Employees = () => {
                     header: col.header || col.accessorKey,
                     order: col.order || index,
                     isVisible: col.isVisible !== undefined ? col.isVisible : true,
+                    Cell: col.accessorKey === 'photo' ? ({cell}) => {
+                        return cell.getValue() ? (
+                            <img
+                                src={cell.getValue()}
+                                alt="User Photo"
+                                style={{
+                                    width: '40px',
+                                    height: '40px',
+                                    borderRadius: '50%',
+                                    objectFit: 'cover',
+                                }}
+                                onError={(e) => {
+                                    e.target.onerror = null;
+                                    e.target.src = '/local/data/file/nophoto.png';
+                                }}
+                            />
+                        ) : <div>No Photo</div>;
+                    } : undefined,
                 }));
 
                 // Сортируем столбцы: сначала видимые, затем невидимые
@@ -380,11 +401,6 @@ const Employees = () => {
         }
     };
 
-    const fetchToggleDensity = async () => {
-        const response = await fetchOption('toggleDensity');
-        return response.value || 'comfortable'; // Возвращаем значение или значение по умолчанию
-    };
-
     const saveToggleDensity = async (density) => {
         try {
             const accessToken = localStorage.getItem("accessToken");
@@ -405,22 +421,70 @@ const Employees = () => {
             console.error("Error saving toggle density:", error);
         }
     };
+
+    const saveSMAButtons = async (showSMAButtons) => {
+        try {
+            const accessToken = localStorage.getItem("accessToken");
+            const payload = {key: "showSMAButtons", value: String(showSMAButtons)}; // Преобразование к булевому значению
+
+            const response = await fetch("/api/options/", {
+                method: "POST",
+                headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(payload), // Передаем только сериализуемый объект
+            });
+
+            if (!response.ok) {
+                throw new Error("Failed to save sort move action buttons");
+            }
+            console.log("Sort move action buttons saved successfully");
+        } catch (error) {
+            console.error("Failed to save sort move action buttons:", error);
+        }
+    };
+
     const [density, setDensity] = useState("comfortable");
     const loadToggleDensity = async () => {
-        const densityValue = await fetchToggleDensity();
-        setDensity(densityValue);
+        try {
+            const response = await fetchOption("toggleDensity");
+            setDensity(response.value || "comfortable"); // Устанавливаем значение или значение по умолчанию
+        } catch (error) {
+            console.error("Failed to load density:", error);
+        }
     };
     const handleToggleDensity = async (newDensity) => {
         await saveToggleDensity(newDensity);
         setDensity(newDensity);
     };
 
+    const [showSMAButtons, setShowSMAButtons] = useState(false);
+    const loadShowSMAButtons = async () => {
+        try {
+            const response = await fetchOption("showSMAButtons"); // fetchOption возвращает объект с `response.value`
+
+            // Преобразуем строку в булево значение
+            const booleanValue = response.value === "true";
+
+            setShowSMAButtons(booleanValue); // Устанавливаем преобразованное значение
+        } catch (error) {
+            console.error("Failed to load show sort move action buttons:", error);
+        }
+    };
+    const handleToggleShowSMAButtons = async (newShowSMAButtons) => {
+        await saveSMAButtons(newShowSMAButtons);
+        setShowSMAButtons(newShowSMAButtons);
+    };
+
     useEffect(() => {
+        document.body.setAttribute('data-theme', isDarkMode ? 'dark' : 'light');
+        loadShowSMAButtons();
         loadToggleDensity();
         loadTheme();
         loadColumns(); // Вызов исправленного метода
         loadEmployees();
-    }, [fetchEmployees, dateRange.startDate, dateRange.endDate]);
+    }, [fetchEmployees, dateRange.startDate, dateRange.endDate, isDarkMode]);
 
     return (
         <ThemeProvider theme={isDarkMode ? darkTheme : lightTheme}>
@@ -474,35 +538,6 @@ const Employees = () => {
                         showMonthAndYearPicker
                     />
                 )}
-                <div>
-                    <button
-                        onClick={toggleTheme}
-                        style={{
-                            marginRight: "10px",
-                            padding: "10px 20px",
-                            backgroundColor: "var(--button-bg-color)",
-                            color: "var(--button-text-color)",
-                            border: "none",
-                            borderRadius: "5px",
-                            cursor: "pointer",
-                        }}
-                    >
-                        Toggle Theme
-                    </button>
-                    <button
-                        onClick={handleLogout}
-                        style={{
-                            padding: "10px 20px",
-                            backgroundColor: "var(--button-bg-color)",
-                            color: "var(--button-text-color)",
-                            border: "none",
-                            borderRadius: "5px",
-                            cursor: "pointer",
-                        }}
-                    >
-                        Logout
-                    </button>
-                </div>
             </div>
             {loading ? (
                 <p>Loading...</p>
@@ -513,14 +548,85 @@ const Employees = () => {
                     key={columns.map(col => col.accessorKey).join('-')}
                     columns={columns}
                     data={data}
-                    enableColumnOrdering={true}
+                    enableColumnOrdering={showSMAButtons}
+                    enableSorting={showSMAButtons}
+                    enableColumnActions={showSMAButtons}
+                    enableColumnPinning={showSMAButtons}
                     enableColumnResizing={true}
+                    columnResizeMode="onChange"
+                    onColumnSizingChange={(newSizing) => setColumnSizing(newSizing)}
                     enableHiding={true}
-                    initialState={{columnVisibility, density}}
+                    initialState={{columnVisibility, density, showSMAButtons, pagination: {pageSize: 50}}}
                     onColumnVisibilityChange={handleColumnVisibilityChange}
                     onColumnOrderChange={handleColumnOrderChange}
                     onDensityChange={handleToggleDensity}
-                    state={{columnVisibility, density}}
+                    state={{columnVisibility, density, showSMAButtons, columnSizing}}
+                    renderTopToolbarCustomActions={({table}) => (
+                        <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
+                            <IconButton
+                                onClick={() => handleToggleShowSMAButtons(!showSMAButtons)} // Передается значение true/false
+                                size="small"
+                                style={{
+                                    padding: "8px",
+                                    borderRadius: "50%",
+                                    color: "inherit",
+                                    position: "absolute",
+                                    right: "205px",
+                                    top: "10px",
+                                    zIndex: 1,
+                                    transition: "background-color 0.3s",
+                                    backgroundColor: "transparent",
+                                }}
+                                onMouseEnter={(e) => e.target.style.backgroundColor = "rgba(200, 200, 200, 0.1)"}
+                                onMouseLeave={(e) => e.target.style.backgroundColor = "transparent"}
+                                title={showSMAButtons ? "Hide Sort/Move/Action" : "Show Sort/Move/Action"}
+                            >
+                                {showSMAButtons ? <SwapHoriz/> : <SwapVert/>}
+                            </IconButton>
+                            <IconButton
+                                onClick={toggleTheme}
+                                size="small"
+                                style={{
+                                    padding: "8px",
+                                    borderRadius: "50%",
+                                    color: "inherit",
+                                    position: "absolute",
+                                    right: "245px",
+                                    top: "10px",
+                                    zIndex: 1,
+                                    transition: "background-color 0.3s",
+                                }}
+                                onMouseEnter={(e) => (e.target.style.backgroundColor = "rgba(200, 200, 200, 0.1)")}
+                                onMouseLeave={(e) => (e.target.style.backgroundColor = "transparent")}
+                                title={isDarkMode ? "Переключить на светлую тему" : "Переключить на тёмную тему"}
+                            >
+                                {isDarkMode ? <Brightness7/> : <Brightness4/>}
+                            </IconButton>
+                            <IconButton
+                                onClick={handleLogout}
+                                size="small"
+                                style={{
+                                    padding: "8px",
+                                    borderRadius: "50%",
+                                    color: "inherit",
+                                    position: "absolute",
+                                    right: "285px",
+                                    top: "10px",
+                                    zIndex: 1,
+                                    transition: "background-color 0.3s",
+                                }}
+                                onMouseEnter={(e) => (e.target.style.backgroundColor = "rgba(200, 200, 200, 0.1)")}
+                                onMouseLeave={(e) => (e.target.style.backgroundColor = "transparent")}
+                                title="Выйти из системы"
+                            >
+                                <LogoutIcon/>
+                            </IconButton>
+                        </div>
+                    )}
+                    mrtColumns={{
+                        enableSorting: showSMAButtons,
+                        enableColumnOrdering: showSMAButtons,
+                    }}
                 />
             )}
             <Snackbar

@@ -9,7 +9,7 @@ __pycache__/
 # Ignore build artifacts
 build/
 dist/
-local/
+public/local/
 frontend/build/
 
 # Ignore IDE configuration files
