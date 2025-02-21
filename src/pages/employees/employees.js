@@ -1,11 +1,21 @@
 import React, {useCallback, useEffect, useState} from "react";
 import {useNavigate} from "react-router-dom";
 import {MaterialReactTable} from "material-react-table";
-import {Alert, createTheme, CssBaseline, IconButton, Snackbar, ThemeProvider, Modal, Button} from "@mui/material";
+import {Alert, Button, createTheme, CssBaseline, IconButton, Modal, Snackbar, ThemeProvider} from "@mui/material";
 import {DateRange} from "react-date-range";
 import "react-date-range/dist/styles.css";
 import "react-date-range/dist/theme/default.css";
-import {Brightness4, Brightness7, Logout as LogoutIcon, SwapHoriz, SwapVert, CalendarMonth as CalendarMonthIcon} from "@mui/icons-material";
+import {MRT_Localization_UK} from "material-react-table/locales/uk";
+import {MRT_Localization_RU} from "material-react-table/locales/ru";
+import {MRT_Localization_EN} from "material-react-table/locales/en";
+import {
+    Brightness4,
+    Brightness7,
+    CalendarMonth as CalendarMonthIcon,
+    Logout as LogoutIcon,
+    SwapHoriz,
+    SwapVert
+} from "@mui/icons-material";
 
 
 const Employees = () => {
@@ -13,6 +23,10 @@ const Employees = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(false);
     const [columns, setColumns] = useState([]);
+    const [pagination, setPagination] = useState({
+        pageIndex: 0, // Начальная страница
+        pageSize: 50, // Количество строк на странице
+    });
     const [columnSizing, setColumnSizing] = useState({
         //initials: 30,
         photo: 75,
@@ -28,12 +42,12 @@ const Employees = () => {
     const [isDarkMode, setIsDarkMode] = useState(true);
     const [isCalendarOpen, setIsCalendarOpen] = useState(false);
     const [dateRange, setDateRange] = useState({
-        startDate: new Date(),
-        endDate: new Date(),
+        startDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1), // 1-й день текущего месяца
+        endDate: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0), // Последний день текущего месяца
         key: "selection",
     });
 
-    const toggleCalendar = () => setIsCalendarOpen(!isCalendarOpen);
+    const toggleCalendar = () => setIsCalendarOpen((prev) => !prev);
 
     const applyDateRange = async () => {
         const period_start = dateRange.startDate.toISOString().slice(0, 10);
@@ -61,8 +75,8 @@ const Employees = () => {
             }
 
             const result = await response.json();
-            setData(result);
-            setIsCalendarOpen(false);
+            setData(result); // Update table with new data
+            setIsCalendarOpen(false); // Close the calendar modal
         } catch (error) {
             console.error("Failed to fetch employees:", error);
             setError(true);
@@ -458,6 +472,67 @@ const Employees = () => {
         await saveToggleDensity(newDensity);
         setDensity(newDensity);
     };
+    const loadPageSize = async () => {
+        try {
+            console.log("Fetching saved PageSize...");
+            const response = await fetchOption("pageSize");
+            console.log("PageSize fetch result:", response);
+            const pageSize = response.value ? parseInt(response.value, 10) : 50;
+            if (!isNaN(pageSize)) {
+                setPagination((prev) => ({
+                    ...prev,
+                    pageSize,
+                }));
+            } else {
+                console.error("Invalid pageSize value:", response.value);
+            }
+        } catch (error) {
+            console.error("Error loading PageSize:", error);
+        }
+    };
+
+    const savePageSize = async (pageSize) => {
+        console.log("Attempting to save pageSize:", pageSize);
+        if (typeof pageSize !== "number" || isNaN(pageSize)) {
+            console.error("Invalid pageSize:", pageSize);
+            return;
+        }
+        try {
+            const response = await fetch("/api/options/", {
+                method: "POST",
+                headers: {
+                    Authorization: `Bearer ${localStorage.getItem("accessToken")}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({key: "pageSize", value: String(pageSize)}),
+            });
+            if (!response.ok) {
+                throw new Error(`Failed to save pageSize: ${response.status}`);
+            }
+            console.log("PageSize saved successfully");
+        } catch (error) {
+            console.error("Error saving pageSize:", error);
+        }
+    };
+
+    const handlePaginationChange = (updater) => {
+        // If updater is a function (common in React state updaters), call it with the current `pagination` state
+        const newPagination = typeof updater === "function" ? updater(pagination) : updater;
+
+        // Validate the `newPagination` object to check for missing or incorrect properties
+        if (
+            newPagination &&
+            typeof newPagination === "object" &&
+            typeof newPagination.pageSize === "number" &&
+            typeof newPagination.pageIndex === "number"
+        ) {
+            console.log("Pagination update received:", newPagination);
+            setPagination(newPagination); // Update local state
+            savePageSize(newPagination.pageSize); // Persist new pageSize
+        } else {
+            console.error("Invalid newPagination object:", newPagination);
+        }
+    };
 
     const [showSMAButtons, setShowSMAButtons] = useState(false);
     const loadShowSMAButtons = async () => {
@@ -478,67 +553,24 @@ const Employees = () => {
     };
 
     useEffect(() => {
+        loadPageSize()
+    }, []);
+
+    useEffect(() => {
         document.body.setAttribute('data-theme', isDarkMode ? 'dark' : 'light');
         loadShowSMAButtons();
         loadToggleDensity();
         loadTheme();
         loadColumns(); // Вызов исправленного метода
+    }, [isDarkMode]);
+
+    useEffect(() => {
         loadEmployees();
-    }, [fetchEmployees, dateRange.startDate, dateRange.endDate, isDarkMode]);
+    }, [dateRange.startDate, dateRange.endDate]);
 
     return (
         <ThemeProvider theme={isDarkMode ? darkTheme : lightTheme}>
             <CssBaseline/>
-            <div style={{padding: "20px"}}>
-                <div style={{display: "flex", justifyContent: "space-between", marginBottom: "20px"}}>
-                    <div style={{display: "flex", alignItems: "center"}}>
-                        <h1>Employees</h1>
-                        <button
-                            onClick={toggleCalendar}
-                            style={{
-                                marginLeft: "10px",
-                                padding: "10px",
-                                backgroundColor: "var(--button-bg-color)",
-                                borderRadius: "5px",
-                                cursor: "pointer",
-                                color: "white",
-                            }}
-                        >
-                            📅
-                        </button>
-                        <span style={{marginLeft: "10px", fontSize: "16px", cursor: "pointer"}}>
-                            {`${dateRange.startDate.toLocaleDateString()} - ${dateRange.endDate.toLocaleDateString()}`}
-                        </span>
-                    </div>
-                    <button
-                        onClick={applyDateRange}
-                        style={{
-                            padding: "10px 20px",
-                            backgroundColor: "var(--button-bg-color)",
-                            borderRadius: "5px",
-                            cursor: "pointer",
-                            color: "white",
-                        }}
-                    >
-                        Apply
-                    </button>
-                </div>
-                {isCalendarOpen && (
-                    <DateRange
-                        ranges={[dateRange]}
-                        onChange={(ranges) =>
-                            setDateRange({
-                                ...dateRange,
-                                startDate: ranges.selection.startDate,
-                                endDate: ranges.selection.endDate,
-                            })
-                        }
-                        months={2}
-                        direction="horizontal"
-                        showMonthAndYearPicker
-                    />
-                )}
-            </div>
             {loading ? (
                 <p>Loading...</p>
             ) : error ? (
@@ -548,6 +580,7 @@ const Employees = () => {
                     key={columns.map(col => col.accessorKey).join('-')}
                     columns={columns}
                     data={data}
+                    localization={MRT_Localization_UK}
                     enableColumnOrdering={showSMAButtons}
                     enableSorting={showSMAButtons}
                     enableColumnActions={showSMAButtons}
@@ -555,14 +588,66 @@ const Employees = () => {
                     enableColumnResizing={true}
                     columnResizeMode="onChange"
                     onColumnSizingChange={(newSizing) => setColumnSizing(newSizing)}
+                    onPaginationChange={handlePaginationChange}
                     enableHiding={true}
-                    initialState={{columnVisibility, density, showSMAButtons, pagination: {pageSize: 50}}}
+                    initialState={{columnVisibility, density, showSMAButtons, pagination,}}
                     onColumnVisibilityChange={handleColumnVisibilityChange}
                     onColumnOrderChange={handleColumnOrderChange}
                     onDensityChange={handleToggleDensity}
-                    state={{columnVisibility, density, showSMAButtons, columnSizing}}
+                    state={{columnVisibility, density, showSMAButtons, columnSizing, pagination,}}
                     renderTopToolbarCustomActions={({table}) => (
                         <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
+                            <span style={{marginRight: "8px"}}>Employees</span>
+                            <IconButton
+                                onClick={toggleCalendar}
+                                style={{}}
+                            >
+                                <CalendarMonthIcon/>
+                            </IconButton>
+                            {/* Display the selected date range */}
+                            <span style={{}}>
+                                {dateRange.startDate.getDate() === 1 && dateRange.endDate.getDate() === new Date(dateRange.endDate.getFullYear(), dateRange.endDate.getMonth() + 1, 0).getDate()
+                                    ? `${dateRange.startDate.toLocaleString('uk', {month: 'long', year: 'numeric'})}`
+                                    : `${dateRange.startDate.toLocaleDateString('uk')} - ${dateRange.endDate.toLocaleDateString('uk')}`}
+                            </span>
+                            {/* Modal for the calendar */}
+                            <Modal open={isCalendarOpen} onClose={toggleCalendar}>
+                                <div
+                                    style={{
+                                        position: "absolute",
+                                        top: "50%",
+                                        left: "50%",
+                                        transform: "translate(-50%, -50%)",
+                                        padding: "20px",
+                                        backgroundColor: "white",
+                                        borderRadius: "8px",
+                                        boxShadow: "0 2px 10px rgba(0,0,0,0.3)",
+                                    }}
+                                >
+                                    <DateRange
+                                        ranges={[dateRange]}
+                                        onChange={(ranges) =>
+                                            setDateRange({
+                                                ...dateRange,
+                                                startDate: ranges.selection.startDate,
+                                                endDate: ranges.selection.endDate,
+                                            })
+                                        }
+                                        months={2}
+                                        direction="horizontal"
+                                        showMonthAndYearPicker
+                                    />
+                                    <div style={{display: "flex", justifyContent: "flex-end", marginTop: "10px"}}>
+                                        <Button
+                                            variant="contained"
+                                            style={{backgroundColor: "var(--button-bg-color)", color: "white"}}
+                                            onClick={applyDateRange}
+                                        >
+                                            Apply
+                                        </Button>
+                                    </div>
+                                </div>
+                            </Modal>
                             <IconButton
                                 onClick={() => handleToggleShowSMAButtons(!showSMAButtons)} // Передается значение true/false
                                 size="small"
